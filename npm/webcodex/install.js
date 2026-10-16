@@ -191,10 +191,13 @@ function noProxyMatches(url, noProxy) {
     let port = null;
     if (entry.startsWith("[")) {
       const end = entry.indexOf("]");
-      if (end !== -1) {
-        host = entry.slice(1, end);
-        if (entry[end + 1] === ":") port = entry.slice(end + 2);
-      }
+      const suffix = end < 0 ? "" : entry.slice(end + 1);
+      // Brackets are reserved for IPv6 literals. A malformed port/suffix
+      // must never silently turn an invalid NO_PROXY rule into a bypass.
+      if (end < 0 || net.isIP(entry.slice(1, end)) !== 6 ||
+          (suffix && !/^:\d+$/.test(suffix))) continue;
+      host = entry.slice(1, end);
+      if (suffix) port = suffix.slice(1);
     } else if (net.isIP(entry) !== 6) {
       // Bare IPv6 such as ::1 is a host, not an implicit port suffix.
       const colon = entry.lastIndexOf(":");
@@ -204,6 +207,15 @@ function noProxyMatches(url, noProxy) {
       }
     }
     if (port && port !== targetPort) continue;
+    if (net.isIP(host) === 6) {
+      // WHATWG URL canonicalizes IPv6 target addresses. Normalize matching
+      // NO_PROXY literals too, so expanded and compressed forms compare equal.
+      try {
+        host = unbracketIPv6Hostname(new URL(`http://[${host}]/`).hostname);
+      } catch (_err) {
+        continue; // An unusable scoped literal cannot match a URL host.
+      }
+    }
     if (targetHost === host || targetHost.endsWith(`.${host}`)) return true;
   }
   return false;

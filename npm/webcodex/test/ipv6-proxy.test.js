@@ -25,6 +25,21 @@ test("IPv6 NO_PROXY bypasses proxy for literal hosts and respects port matching"
   );
 });
 
+test("IPv6 NO_PROXY canonicalizes equivalent addresses and rejects malformed bracket suffixes", () => {
+  const target = "http://[::1]:4873/archive.tgz";
+  const env = (rule) => ({ npm_config_proxy: PROXY_URL, NO_PROXY: rule });
+  for (const rule of [
+    "[0:0:0:0:0:0:0:1]",
+    "0:0:0:0:0:0:0:1",
+    "[0:0:0:0:0:0:0:1]:4873"
+  ]) {
+    assert.equal(resolveNpmNetworkOptions(target, env(rule)).proxy, null, rule);
+  }
+  for (const rule of ["[::1]garbage", "[::1]:", "[::1]:bogus", "[0:0:0:0:0:0:0:1]:9999"]) {
+    assert.equal(resolveNpmNetworkOptions(target, env(rule)).proxy.href, PROXY_URL, rule);
+  }
+});
+
 async function ipv6Server(t, handler) {
   const server = http.createServer(handler);
   try {
