@@ -166,10 +166,19 @@ function defaultPort(protocol) {
   return protocol === "https:" ? "443" : "80";
 }
 
+// WHATWG URL.hostname includes brackets around IPv6 literals, while
+// Node's http(s).request hostname and NO_PROXY comparisons need raw IPs.
+// URL.host / HTTP Host headers keep their required brackets.
+function unbracketIPv6Hostname(hostname) {
+  return hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+}
+
 function noProxyMatches(url, noProxy) {
   if (!noProxy) return false;
   const target = url instanceof URL ? url : new URL(url);
-  const targetHost = target.hostname.toLowerCase();
+  const targetHost = unbracketIPv6Hostname(target.hostname.toLowerCase());
   const targetPort = target.port || defaultPort(target.protocol);
   for (let entry of String(noProxy).split(",")) {
     entry = entry.trim().toLowerCase();
@@ -186,7 +195,8 @@ function noProxyMatches(url, noProxy) {
         host = entry.slice(1, end);
         if (entry[end + 1] === ":") port = entry.slice(end + 2);
       }
-    } else {
+    } else if (net.isIP(entry) !== 6) {
+      // Bare IPv6 such as ::1 is a host, not an implicit port suffix.
       const colon = entry.lastIndexOf(":");
       if (colon !== -1 && /^\d+$/.test(entry.slice(colon + 1))) {
         host = entry.slice(0, colon);
@@ -261,7 +271,8 @@ function tlsRequestOptions(network, hostname) {
   const options = {};
   if (network.ca !== undefined) options.ca = network.ca;
   if (network.rejectUnauthorized !== undefined) options.rejectUnauthorized = network.rejectUnauthorized;
-  if (hostname && net.isIP(hostname) === 0) options.servername = hostname;
+  const tlsHost = hostname && unbracketIPv6Hostname(hostname);
+  if (tlsHost && net.isIP(tlsHost) === 0) options.servername = tlsHost;
   return options;
 }
 
@@ -299,7 +310,8 @@ function startNetworkRequest(url, environment, onResponse, onError) {
   const proxy = network.proxy;
   const proxyClient = proxy.protocol === "https:" ? https : http;
   const auth = proxyAuthorization(proxy);
-  const proxyTls = proxy.protocol === "https:" ? tlsRequestOptions(network, proxy.hostname) : {};
+  const proxyHostname = unbracketIPv6Hostname(proxy.hostname);
+  const proxyTls = proxy.protocol === "https:" ? tlsRequestOptions(network, proxyHostname) : {};
   const proxyPort = proxy.port || defaultPort(proxy.protocol);
 
   if (parsed.protocol === "http:") {
@@ -311,7 +323,7 @@ function startNetworkRequest(url, environment, onResponse, onError) {
     proxyTarget.hash = "";
     targetRequest = proxyClient.request({
       ...proxyTls,
-      hostname: proxy.hostname,
+      hostname: proxyHostname,
       port: proxyPort,
       method: "GET",
       path: proxyTarget.href,
@@ -327,7 +339,7 @@ function startNetworkRequest(url, environment, onResponse, onError) {
   if (auth) connectHeaders["Proxy-Authorization"] = auth;
   proxyRequest = proxyClient.request({
     ...proxyTls,
-    hostname: proxy.hostname,
+    hostname: proxyHostname,
     port: proxyPort,
     method: "CONNECT",
     path: `${parsed.hostname}:${targetPort}`,
@@ -347,9 +359,10 @@ function startNetworkRequest(url, environment, onResponse, onError) {
       return;
     }
     if (head && head.length) socket.unshift(head);
-    const targetTls = tlsRequestOptions(network, parsed.hostname);
+    const targetHostname = unbracketIPv6Hostname(parsed.hostname);
+    const targetTls = tlsRequestOptions(network, targetHostname);
     targetRequest = https.request({
-      hostname: parsed.hostname,
+      hostname: targetHostname,
       port: targetPort,
       method: "GET",
       path: `${parsed.pathname}${parsed.search}`,
