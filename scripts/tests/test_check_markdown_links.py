@@ -64,6 +64,30 @@ class MarkdownLinkTests(unittest.TestCase):
             self.assertEqual(count, 1)
             self.assertEqual(missing, [])
 
+    def test_indented_list_fences_still_hide_example_links(self) -> None:
+        # A fenced code block inside a list can have four or more leading
+        # spaces; the checker historically handled those list-nested fences.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "real.md").write_text("ok", encoding="utf-8")
+            source = root / "README.md"
+            source.write_text(
+                "- Example:\n\n"
+                "    ````sh\n"
+                "    [inside](missing.md)\n"
+                "    ```\n"
+                "    [still inside](missing-again.md)\n"
+                "    ````\n"
+                "\t~~~sh\n"
+                "\t[also inside](missing-third.md)\n"
+                "\t~~~\n"
+                "[outside](real.md)\n",
+                encoding="utf-8",
+            )
+            count, missing = checker.check_markdown_links(root, [source])
+            self.assertEqual(count, 1)
+            self.assertEqual(missing, [])
+
     def test_fence_with_info_text_cannot_close_code_block(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

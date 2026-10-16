@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 LINK_RE = re.compile(r"!?\[[^\]\n]*\]\(([^)\n]+)\)")
-FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+# Keep recognizing list-nested/indented fences as the former checker did;
+# the checker intentionally does not parse full Markdown list structure.
+FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
